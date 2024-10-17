@@ -13,7 +13,7 @@ from transformers.trainer import get_scheduler
 from openrlhf.datasets_local import PromptDataset, SFTDataset
 from openrlhf.models import Actor
 from openrlhf.trainer import PPOTrainer
-from openrlhf.trainer.ppo_utils import Experience, RemoteExperienceMaker
+from openrlhf.trainer.ppo_utils import Experience, RemoteExperienceMaker, RCGExperienceMaker
 from openrlhf.utils import DeepspeedStrategy, blending_datasets, get_tokenizer
 from openrlhf.utils.deepspeed_utils import _z3_params_to_fetch
 from openrlhf.utils.distributed_util import init_process_group
@@ -41,7 +41,7 @@ class ActorPPOTrainer(PPOTrainer):
         self.vllm_engines = vllm_engines
         self.critic_train_remote = critic_train_remote
 
-        self.experience_maker = RemoteExperienceMaker(
+        self.experience_maker = RCGExperienceMaker(
             self.actor,
             self.critic,
             self.reward_model,
