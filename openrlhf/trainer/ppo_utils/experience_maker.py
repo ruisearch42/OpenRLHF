@@ -525,25 +525,20 @@ class RCGExperienceMaker(NaiveExperienceMaker):
 
     def _init_cg(self):
         print("Init compiled graphs")
+        assert len(self.reward_model) == 1
         with InputNode() as inp:
             sequences_cpu = inp.sequences_cpu
-            # packed_seq_lens = inp.packed_seq_lens
             num_actions = inp.num_actions
             attention_mask_cpu = inp.attention_mask_cpu
-            # args = inp.args
             base_action_log_probs = self.initial_model.forward.bind(
                 sequences_cpu, num_actions, attention_mask_cpu)
             value = self.critic.forward.bind(
                 sequences_cpu, num_actions, attention_mask_cpu)
-            # if args.colocate_critic_reward:
-            #     empty = self.critic.empty_cache.bind()
-            # if args.colocate_actor_ref:
-            #     empty = self.initial_model.empty_cache.bind()
-            rewards = []
-            for rm in self.reward_model:
-                rewards.append(rm.forward.bind(sequences_cpu, attention_mask_cpu))
-            dag = MultiOutputNode([base_action_log_probs, value, rewards[0]])
-        return dag.experimental_compile()
+            reward = self.reward_model[0].forward.bind(sequences_cpu, attention_mask_cpu)
+            dag = MultiOutputNode([base_action_log_probs, value, reward])
+        compiled_dag = dag.experimental_compile()
+        print("Init compiled graphs done")
+        return compiled_dag
 
     @torch.no_grad()
     def make_experience(self, prompts: Union[str, List[str]], **generate_kwargs) -> Experience:
@@ -578,7 +573,6 @@ class RCGExperienceMaker(NaiveExperienceMaker):
         print("Executing compiled graphs")
         adag_ref = self.compiled_dag.execute(
             sequences_cpu=sequences_cpu,
-            # packed_seq_lens=packed_seq_lens,
             num_actions=num_actions,
             attention_mask_cpu=attention_mask_cpu,
         )

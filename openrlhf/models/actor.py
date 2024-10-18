@@ -195,6 +195,7 @@ class Actor(nn.Module):
                 position_ids = reset_position_ids(attention_mask)
         position_ids.masked_fill_(attention_mask == 0, 1)
 
+        print(f"{sequences.device=}")
         output = self.model(sequences, attention_mask=attention_mask, position_ids=position_ids)
 
         if num_actions is None:
