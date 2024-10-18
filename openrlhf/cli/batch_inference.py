@@ -8,7 +8,7 @@ from torch import distributed as dist
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
-from openrlhf.datasets import PromptDataset, SFTDataset
+from openrlhf.datasets_local import PromptDataset, SFTDataset
 from openrlhf.models import Actor, get_llm_for_sequence_regression
 from openrlhf.utils import blending_datasets, get_processor, get_strategy, get_tokenizer
 

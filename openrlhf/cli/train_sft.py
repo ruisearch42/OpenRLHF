@@ -5,7 +5,7 @@ from datetime import datetime
 
 from transformers.trainer import get_scheduler
 
-from openrlhf.datasets import SFTDataset
+from openrlhf.datasets_local import SFTDataset
 from openrlhf.models import Actor
 from openrlhf.trainer import SFTTrainer
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer

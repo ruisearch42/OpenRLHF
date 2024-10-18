@@ -7,7 +7,7 @@ from datetime import datetime
 import torch.distributed as dist
 from transformers.trainer import get_scheduler
 
-from openrlhf.datasets import UnpairedPreferenceDataset
+from openrlhf.datasets_local import UnpairedPreferenceDataset
 from openrlhf.models import Actor
 from openrlhf.trainer import KTOTrainer
 from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
