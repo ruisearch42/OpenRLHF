@@ -442,7 +442,8 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
 
             info["actor_log_probs_comms_time"] = torch.full((batch_size,), base_actor_total_time - base_actor_actual_time, device=device, dtype=float)
             info["actor_log_probs_calc_time"] = torch.full((batch_size,), base_actor_actual_time, device=device, dtype=float)
-            info["actor_log_probs_comms_size_mb"] = torch.full((batch_size,),  b_size / (1024*1024), device=device, dtype=float)
+            info["actor_ref_log_probs_comms_size_mb"] = torch.full((batch_size,),  b_size / (1024*1024), device=device, dtype=float)
+            info["critic_comms_size_mb"] = torch.full((batch_size,),  v_size / (1024*1024), device=device, dtype=float)
             v_critic_total_time = v_critic_end_time - v_s
             info["critic_comms_time"] = torch.full((batch_size,), v_critic_total_time - v_internal_time, device=device, dtype=float)
             info["total_time"] = torch.full((batch_size,), final_end - first_start, device=device, dtype=float)
