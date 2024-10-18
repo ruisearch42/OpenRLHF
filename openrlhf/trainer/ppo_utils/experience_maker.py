@@ -524,24 +524,25 @@ class RCGExperienceMaker(NaiveExperienceMaker):
         self.compiled_dag = self._init_cg()
 
     def _init_cg(self):
+        print("Init compiled graphs")
         with InputNode() as inp:
             sequences_cpu = inp.sequences_cpu
-            packed_seq_lens = inp.packed_seq_lens
+            # packed_seq_lens = inp.packed_seq_lens
             num_actions = inp.num_actions
             attention_mask_cpu = inp.attention_mask_cpu
-            args = inp.args
+            # args = inp.args
             base_action_log_probs = self.initial_model.forward.bind(
-                sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens)
+                sequences_cpu, num_actions, attention_mask_cpu)
             value = self.critic.forward.bind(
-                sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens)
-            if args.colocate_critic_reward:
-                empty = self.critic.empty_cache.bind()
-            if args.colocate_actor_ref:
-                empty = self.initial_model.empty_cache.bind()
+                sequences_cpu, num_actions, attention_mask_cpu)
+            # if args.colocate_critic_reward:
+            #     empty = self.critic.empty_cache.bind()
+            # if args.colocate_actor_ref:
+            #     empty = self.initial_model.empty_cache.bind()
             rewards = []
             for rm in self.reward_model:
-                rewards.append(rm.forward.bind(sequences_cpu, attention_mask_cpu, packed_seq_lens=packed_seq_lens))
-            dag = MultiOutputNode(base_action_log_probs, value, rewards)
+                rewards.append(rm.forward.bind(sequences_cpu, attention_mask_cpu))
+            dag = MultiOutputNode([base_action_log_probs, value, rewards[0]])
         return dag.experimental_compile()
 
     @torch.no_grad()
@@ -574,13 +575,15 @@ class RCGExperienceMaker(NaiveExperienceMaker):
             attention_mask.to("cpu"),
         )
    
-        output = self.compiled_dag.execute(
+        print("Executing compiled graphs")
+        adag_ref = self.compiled_dag.execute(
             sequences_cpu=sequences_cpu,
-            packed_seq_lens=packed_seq_lens,
+            # packed_seq_lens=packed_seq_lens,
             num_actions=num_actions,
             attention_mask_cpu=attention_mask_cpu,
         )
-        print(output)
+        adag_res = ray.get(adag_ref)
+        print(f"compiled graphs {adag_res=}")
 
         # init log probs
         base_action_log_probs_ref = self.initial_model.forward.remote(
@@ -591,7 +594,6 @@ class RCGExperienceMaker(NaiveExperienceMaker):
         value_ref = self.critic.forward.remote(
             sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens
         )
-
         # avoid CUDA OOM when colocate models
         if self.strategy.args.colocate_critic_reward:
             ray.get([value_ref])
