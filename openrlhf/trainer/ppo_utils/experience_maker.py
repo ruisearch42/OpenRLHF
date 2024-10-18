@@ -540,6 +540,21 @@ class RCGExperienceMaker(NaiveExperienceMaker):
         print("Init compiled graphs done")
         return compiled_dag
 
+    def preprocess_for_generate(self, prompts: List[str], **kwargs):
+        from vllm import SamplingParams
+        sampling_params = SamplingParams(
+            temperature=kwargs.get("temperature", 1.0),
+            top_p=kwargs.get("top_p", 1.0),
+            top_k=kwargs.get("top_k", -1),
+            max_tokens=kwargs.get("max_new_tokens", 1024),
+            min_tokens=kwargs.get("min_new_tokens", 1),
+            skip_special_tokens=kwargs.get("skip_special_tokens", False),
+        )
+
+        # TODO: can't pass `max_length` to vLLM's tokenizer for input truncation, remove this once it is supported.
+        prompt_token_ids = self.tokenize_fn(prompts, self.prompt_max_len, padding=False)["input_ids"]
+        return sampling_params, prompt_token_ids
+
     @torch.no_grad()
     def make_experience(self, prompts: Union[str, List[str]], **generate_kwargs) -> Experience:
         self.actor.eval()

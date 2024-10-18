@@ -2,6 +2,7 @@ import os
 from typing import Dict, List
 
 import ray
+import torch
 from ray.util.placement_group import placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
@@ -47,6 +48,72 @@ class LLMRayActor:
 
     def generate(self, *args, **kwargs):
         return self.llm.generate(*args, **kwargs)
+
+    def generate_and_prepare(self, sampling_params, prompt_token_ids):
+        outputs = self.generate(sampling_params=sampling_params, prompt_token_ids=prompt_token_ids)
+        assert not self.packing_samples
+        # NOTE: concat all outputs to following format:
+        #
+        # | [PAD] [PAD] token token token | token token [EOS] [PAD] |
+        # | token token token token token | token token [EOS] [PAD] |
+        # | [PAD] [PAD] [PAD] token token | token token token [EOS] |
+        # |<---------- prompt ----------->|<-------- answer ------->|
+        max_input_len, max_output_len = 0, 0
+        for output in outputs:
+            max_input_len = max(max_input_len, len(output.prompt_token_ids))
+            max_output_len = max(max_output_len, len(output.outputs[0].token_ids))
+
+        pad_token_id, eos_token_id = self.tokenizer.pad_token_id, self.tokenizer.eos_token_id
+        sequences = []
+        for output in outputs:
+            # left padding input
+            input_len = len(output.prompt_token_ids)
+            input_ids = [pad_token_id] * (max_input_len - input_len) + list(output.prompt_token_ids)
+
+            # right padding output
+            output_len = len(output.outputs[0].token_ids)
+            output_ids = list(output.outputs[0].token_ids) + [pad_token_id] * (max_output_len - output_len)
+
+            if output_ids[output_len - 1] != eos_token_id:
+                output_ids[min(output_len, len(output_ids) - 1)] = eos_token_id
+
+            # concat input and output
+            sequences.append(input_ids + output_ids)
+
+        sequences = torch.tensor(sequences)
+        sequences, attention_mask, action_mask = self.process_sequences(
+            sequences, max_input_len, eos_token_id, pad_token_id
+        )
+        return sequences, attention_mask, action_mask
+    
+    def process_sequences(self, sequences: torch.Tensor, input_len, eos_token_id, pad_token_id):
+        attention_mask = (sequences.ne(eos_token_id) & sequences.ne(pad_token_id)).to(dtype=torch.long)
+        seq_length = attention_mask.size(1)
+
+        # The following code is equivalent to:
+        #
+        # for i in range(attention_mask.size(0)):
+        #     for t in reversed(range(seq_length)):
+        #         if attention_mask[i][t] > 0.5:
+        #             attention_mask[i][min(t + 1, seq_length - 1)] = True
+        #             sequences[i][min(t + 1, seq_length - 1)] = eos_token_id
+        #             break
+        #
+        eos_indices = seq_length - attention_mask.long().fliplr().argmax(dim=1, keepdim=True).clamp(min=1)
+        sequences.scatter_(dim=1, index=eos_indices, value=eos_token_id)
+
+        # For Llama3 and Qwen2 models, there are some eos_tokens in the middle of the prompt.
+        first_token_indices = attention_mask.long().argmax(dim=1, keepdim=True)
+        mask = torch.arange(seq_length).unsqueeze(0).expand(sequences.size(0), -1).to(device=sequences.device)
+        attention_mask = (mask >= first_token_indices) & (mask <= eos_indices).to(dtype=torch.long)
+
+        # in RL, state_i (current token) + action_i (next token) -> state_i+1 (next token)
+        state_seq = sequences[:, input_len - 1 : -1]
+        action_mask = state_seq.ne(eos_token_id) & state_seq.ne(pad_token_id)
+        action_mask[:, 0] = 1
+
+        return sequences, attention_mask, action_mask
+
 
     def init_process_group(self, master_address, master_port, rank_offset, world_size, group_name, backend):
         if self.use_gpu_executor:
