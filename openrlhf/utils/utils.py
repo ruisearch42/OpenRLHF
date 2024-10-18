@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from torch import Tensor 
 from datasets import Dataset, interleave_datasets, load_dataset, load_from_disk
 from transformers import AutoTokenizer
 
@@ -24,6 +25,8 @@ def get_tokenizer(pretrain, model, padding_side="left", strategy=None, use_fast=
 
     return tokenizer
 
+def element_bytes(tensor: Tensor):
+    return tensor.element_size() * tensor.numel()
 
 def get_strategy(args):
     strategy = DeepspeedStrategy(

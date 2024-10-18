@@ -1,6 +1,7 @@
 import math
 import os
 from typing import Dict, Optional, Union
+import time 
 
 import ray
 import torch
@@ -152,8 +153,10 @@ class CriticModelRayActor(BasePPORole):
         num_actions: Optional[Union[int, list[int]]] = None,
         attention_mask: Optional[torch.Tensor] = None,
         packed_seq_lens=None,
+        return_timing: bool = False,
     ) -> torch.Tensor:
         """Generates critic values."""
+        start = time.time()
         device = torch.cuda.current_device()
         self.critic.eval()
         with torch.no_grad():
@@ -161,6 +164,9 @@ class CriticModelRayActor(BasePPORole):
                 sequences.to(device), num_actions, attention_mask.to(device), packed_seq_lens=packed_seq_lens
             )
         self.critic.train()  # reset model state
+        end = time.time()
+        if return_timing: 
+            return value.to('cpu'), end - start
         return value.to("cpu")
 
     def append(self, experience):

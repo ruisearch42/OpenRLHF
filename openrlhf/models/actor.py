@@ -12,7 +12,7 @@ from transformers.deepspeed import HfDeepSpeedConfig
 
 from .ring_attn_utils import convert_ring_attn_params
 from .utils import log_probs_from_logits, reset_position_ids
-
+import time
 
 class Actor(nn.Module):
     """
@@ -180,8 +180,10 @@ class Actor(nn.Module):
         return_output=False,
         ring_attn_group: Optional[dist.ProcessGroup] = None,
         packed_seq_lens: Optional[list[int]] = None,
+        return_timing: bool = False,
     ) -> torch.Tensor:
         """Returns action log probs"""
+        st = time.time()
         if not self.packing_samples:
             # https://github.com/OpenRLHF/OpenRLHF/issues/217
             position_ids = attention_mask.long().cumsum(-1) - 1
@@ -214,11 +216,15 @@ class Actor(nn.Module):
                 action_log_probs.append(log_probs[:, start:end])
                 offset += seq_len
             action_log_probs = torch.cat(action_log_probs, dim=1)
-
+            
+        et = time.time()
         if return_output:
             return (action_log_probs, output)
         else:
-            return action_log_probs
+            if return_timing:
+                return action_log_probs,  et-st
+            else:
+                return action_log_probs
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs={"use_reentrant": False}):
         self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=gradient_checkpointing_kwargs)

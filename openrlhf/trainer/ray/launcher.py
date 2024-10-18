@@ -86,6 +86,7 @@ class ReferenceModelRayActor(BasePPORole):
         attention_mask: Optional[torch.Tensor] = None,
         return_output=False,
         packed_seq_lens: Optional[list[int]] = None,
+        return_timing: bool = False
     ) -> torch.Tensor:
         device = torch.cuda.current_device()
         with torch.no_grad():
@@ -95,8 +96,14 @@ class ReferenceModelRayActor(BasePPORole):
                 attention_mask.to(device),
                 return_output=return_output,
                 packed_seq_lens=packed_seq_lens,
+                return_timing=return_timing
             )
-        return log_probs.to("cpu")
+            if return_timing:
+                log_probs, internal_time = log_probs
+        if return_timing:
+            return log_probs.to("cpu"), internal_time
+        else:
+            return log_probs.to("cpu")
 
     def empty_cache(self) -> None:
         torch.cuda.empty_cache()

@@ -14,6 +14,7 @@ from openrlhf.models.actor import Actor
 from openrlhf.models.utils import compute_reward, masked_mean, unpacking_samples
 from openrlhf.utils.logging_utils import init_logger
 from openrlhf.utils.remote_rm_utils import remote_rm_fn, remote_rm_fn_ray
+from openrlhf.utils.utils import element_bytes
 
 logger = init_logger(__name__)
 
@@ -272,6 +273,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
 
         # generate sequence
         start = time.time()
+        first_start = start
         if not self.packing_samples:
             sequences, attention_mask, action_mask = (
                 self._generate_local(prompts, **generate_kwargs)
@@ -294,24 +296,31 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
             sequences.to("cpu"),
             attention_mask.to("cpu"),
         )
-
         # init log probs
+        b_s = time.time()
         base_action_log_probs_ref = self.initial_model.forward.remote(
-            sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens
+            sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens, return_timing=True
         )
+        b_size = element_bytes(sequences_cpu) + element_bytes(attention_mask_cpu) + (element_bytes(packed_seq_lens) if packed_seq_lens else 0)
 
         # values
+        v_s = time.time()
         value_ref = self.critic.forward.remote(
-            sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens
+            sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens, return_timing=True
         )
+        v_size = element_bytes(sequences_cpu) + element_bytes(attention_mask_cpu) + (element_bytes(packed_seq_lens) if packed_seq_lens else 0)
 
+        b_actor_end_time = None
+        v_critic_end_time = None
         # avoid CUDA OOM when colocate models
         if self.strategy.args.colocate_critic_reward:
             ray.get([value_ref])
+            v_critic_end_time = time.time()
             ray.get([self.critic.empty_cache.remote()])
 
         if self.strategy.args.colocate_actor_ref:
             ray.get([base_action_log_probs_ref])
+            b_actor_end_time = time.time()
             ray.get([self.initial_model.empty_cache.remote()])
 
         # rewards
@@ -346,9 +355,12 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         # wait initial/critic/reward model done
         start = time.time()
         ref_values = ray.get([base_action_log_probs_ref, value_ref] + r_refs)
+        if not b_actor_end_time:
+            b_actor_end_time = time.time()
+        if not v_critic_end_time:
+            v_critic_end_time = time.time()
         wait_time = time.time() - start
-
-        base_action_log_probs, value, rewards = ref_values[0], ref_values[1], ref_values[2:]
+        (base_action_log_probs, internal_time), (value, v_internal_time), rewards = ref_values[0], ref_values[1], ref_values[2:]
         base_action_log_probs, value = base_action_log_probs.to(device), value.to(device)
         rewards = [r.to(device) for r in rewards]
         r = self.reward_fn(rewards) if len(rewards) > 0 else rewards[0]
@@ -422,6 +434,18 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         experience_cpu = deepcopy(experience)
         experience_cpu.to_device("cpu")
         self._ref = self.critic.append.remote(experience_cpu)
+        final_end = time.time()
+        if self.strategy.args.perf:
+            batch_size = 1 if isinstance(prompts, str) else len(prompts)
+            base_actor_total_time = b_actor_end_time - b_s
+            base_actor_actual_time = internal_time
+
+            info["actor_log_probs_comms_time"] = torch.full((batch_size,), base_actor_total_time - base_actor_actual_time, device=device, dtype=float)
+            info["actor_log_probs_calc_time"] = torch.full((batch_size,), base_actor_actual_time, device=device, dtype=float)
+            info["actor_log_probs_comms_size_mb"] = torch.full((batch_size,),  b_size / (1024*1024), device=device, dtype=float)
+            v_critic_total_time = v_critic_end_time - v_s
+            info["critic_comms_time"] = torch.full((batch_size,), v_critic_total_time - v_internal_time, device=device, dtype=float)
+            info["total_time"] = torch.full((batch_size,), final_end - first_start, device=device, dtype=float)
 
         self.actor.train()  # reset model state
         return experience
