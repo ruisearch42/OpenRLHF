@@ -49,9 +49,9 @@ class LLMRayActor:
     def generate(self, *args, **kwargs):
         return self.llm.generate(*args, **kwargs)
 
-    def generate_and_prepare(self, sampling_params, prompt_token_ids):
+    @ray.method(num_returns=4)
+    def generate_and_prepare(self, sampling_params, prompt_token_ids, pad_token_id, eos_token_id):
         outputs = self.generate(sampling_params=sampling_params, prompt_token_ids=prompt_token_ids)
-        assert not self.packing_samples
         # NOTE: concat all outputs to following format:
         #
         # | [PAD] [PAD] token token token | token token [EOS] [PAD] |
@@ -63,7 +63,6 @@ class LLMRayActor:
             max_input_len = max(max_input_len, len(output.prompt_token_ids))
             max_output_len = max(max_output_len, len(output.outputs[0].token_ids))
 
-        pad_token_id, eos_token_id = self.tokenizer.pad_token_id, self.tokenizer.eos_token_id
         sequences = []
         for output in outputs:
             # left padding input
@@ -84,7 +83,8 @@ class LLMRayActor:
         sequences, attention_mask, action_mask = self.process_sequences(
             sequences, max_input_len, eos_token_id, pad_token_id
         )
-        return sequences, attention_mask, action_mask
+        num_actions = action_mask.size(1)
+        return sequences, attention_mask, action_mask, num_actions
     
     def process_sequences(self, sequences: torch.Tensor, input_len, eos_token_id, pad_token_id):
         attention_mask = (sequences.ne(eos_token_id) & sequences.ne(pad_token_id)).to(dtype=torch.long)

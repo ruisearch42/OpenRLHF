@@ -525,16 +525,24 @@ class RCGExperienceMaker(NaiveExperienceMaker):
 
     def _init_cg(self):
         print("Init compiled graphs")
+        assert len(self.vllm_engines) == 1
         assert len(self.reward_model) == 1
         with InputNode() as inp:
-            sequences_cpu = inp.sequences_cpu
-            num_actions = inp.num_actions
-            attention_mask_cpu = inp.attention_mask_cpu
+            sampling_params = inp.sampling_params
+            prompt_token_ids = inp.prompt_token_ids
+            pad_token_id = inp.pad_token_id
+            eos_token_id = inp.eos_token_id
+
+            sequences, attention_mask, action_mask, num_actions = self.vllm_engines[0].generate_and_prepare.bind(
+                sampling_params, prompt_token_ids, pad_token_id, eos_token_id)
+            # sequences_cpu = inp.sequences_cpu
+            # num_actions = inp.num_actions
+            # attention_mask_cpu = inp.attention_mask_cpu
             base_action_log_probs = self.initial_model.forward.bind(
-                sequences_cpu, num_actions, attention_mask_cpu)
+                sequences, num_actions, attention_mask)
             value = self.critic.forward.bind(
-                sequences_cpu, num_actions, attention_mask_cpu)
-            reward = self.reward_model[0].forward.bind(sequences_cpu, attention_mask_cpu)
+                sequences, num_actions, attention_mask)
+            reward = self.reward_model[0].forward.bind(sequences, attention_mask)
             dag = MultiOutputNode([base_action_log_probs, value, reward])
         compiled_dag = dag.experimental_compile()
         print("Init compiled graphs done")
@@ -580,17 +588,21 @@ class RCGExperienceMaker(NaiveExperienceMaker):
             total_length = torch.tensor(packed_seq_lens, device=device, dtype=torch.float)
         generate_time = time.time() - start
 
+        sampling_params, prompt_token_ids = self.preprocess_for_generate(prompts, **generate_kwargs)
+
+        print("Executing compiled graphs")
+        adag_ref = self.compiled_dag.execute(
+            sampling_params=sampling_params,
+            prompt_token_ids=prompt_token_ids,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.tokenizer.eos_token_id
+        )
+
         sequences_cpu, attention_mask_cpu = (
             sequences.to("cpu"),
             attention_mask.to("cpu"),
         )
-   
-        print("Executing compiled graphs")
-        adag_ref = self.compiled_dag.execute(
-            sequences_cpu=sequences_cpu,
-            num_actions=num_actions,
-            attention_mask_cpu=attention_mask_cpu,
-        )
+
         adag_res = ray.get(adag_ref)
         print(f"compiled graphs {adag_res=}")
 
