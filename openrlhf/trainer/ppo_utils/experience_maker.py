@@ -599,10 +599,10 @@ class RCGExperienceMaker(NaiveExperienceMaker):
             eos_token_id=self.tokenizer.eos_token_id
         )
 
-        sequences_cpu, attention_mask_cpu = (
-            sequences.to("cpu"),
-            attention_mask.to("cpu"),
-        )
+        # sequences_cpu, attention_mask_cpu = (
+        #     sequences.to("cpu"),
+        #     attention_mask.to("cpu"),
+        # )
 
         adag_res = ray.get(adag_ref)
         print(f"compiled graphs {adag_res=}")
