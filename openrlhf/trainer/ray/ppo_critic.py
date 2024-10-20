@@ -168,10 +168,11 @@ class CriticModelRayActor(BasePPORole):
         seq_tuple
     ):
         sequences, attention_mask, action_mask, num_actions = seq_tuple
+        device = torch.cuda.current_device()
         self.critic.eval()
         with torch.no_grad():
             value = self.critic(
-                sequences, num_actions, attention_mask, packed_seq_lens=None
+                sequences.to(device), num_actions, attention_mask.to(device), packed_seq_lens=None
             )
         self.critic.train()
         return value

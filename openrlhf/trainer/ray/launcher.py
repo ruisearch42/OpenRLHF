@@ -101,10 +101,11 @@ class ReferenceModelRayActor(BasePPORole):
     def forward_cg(self, seq_tuple):
         sequences, attention_mask, action_mask, num_actions = seq_tuple
         with torch.no_grad():
+            device = torch.cuda.current_device()
             log_probs = self.model(
-                sequences,
+                sequences.to(device),
                 num_actions,
-                attention_mask,
+                attention_mask.to(device),
                 return_output=False,
                 packed_seq_lens=None
             )
@@ -151,8 +152,9 @@ class RewardModelRayActor(BasePPORole):
         self, seq_tuple
     ):
         sequences, attention_mask, action_mask, num_actions = seq_tuple
+        device = torch.cuda.current_device()
         with torch.no_grad():
-            reward = self.model(sequences, attention_mask, packed_seq_lens=None)
+            reward = self.model(sequences.to(device), attention_mask.to(device), packed_seq_lens=None)
         return reward
 
     def empty_cache(self) -> None:

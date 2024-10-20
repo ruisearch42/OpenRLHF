@@ -539,7 +539,7 @@ class RCGExperienceMaker(NaiveExperienceMaker):
 
             seq_tuple = self.vllm_engines[0].generate_and_prepare.bind(
                 sampling_params, prompt_token_ids, pad_token_id, eos_token_id)
-            seq_tuple.with_type_hint(TorchTensorType(transport="nccl"))
+            # seq_tuple.with_type_hint(TorchTensorType(transport="nccl"))
 
             base_action_log_probs = self.initial_model.forward_cg.bind(seq_tuple)
             value = self.critic.forward_cg.bind(seq_tuple)
