@@ -186,6 +186,7 @@ class ActorPPOTrainer(PPOTrainer):
 @ray.remote(num_gpus=1)
 class ActorModelRayActor(BasePPORole):
     def init_model_from_pretrained(self, strategy: DeepspeedStrategy, pretrain):
+        print("init_model_from_pretrained")
         args = strategy.args
         self._setup_distributed(strategy)
 

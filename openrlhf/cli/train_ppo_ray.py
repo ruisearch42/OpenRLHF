@@ -42,6 +42,9 @@ def _validate_args(args):
 def train(args):
     _validate_args(args)
 
+    import os
+    os.environ["NCCL_DEBUG"] = "TRACE"
+
     # configure strategy
     strategy = get_strategy(args)
 

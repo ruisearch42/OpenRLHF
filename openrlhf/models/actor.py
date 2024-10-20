@@ -39,6 +39,8 @@ class Actor(nn.Module):
         packing_samples=False,
         **kwargs,
     ) -> None:
+        import os
+        os.environ["NCCL_DEBUG"] = "TRACE"
         super().__init__()
 
         if isinstance(pretrain_or_model, str):

@@ -527,6 +527,8 @@ class RCGExperienceMaker(NaiveExperienceMaker):
 
     def _init_cg(self):
         print("Init compiled graphs")
+        import os
+        os.environ["NCCL_DEBUG"] = "TRACE"
         assert len(self.vllm_engines) == 1
         assert len(self.reward_model) == 1
         with InputNode() as inp:
