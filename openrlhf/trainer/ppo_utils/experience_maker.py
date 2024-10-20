@@ -606,61 +606,63 @@ class RCGExperienceMaker(NaiveExperienceMaker):
 
         adag_res = ray.get(adag_ref)
         print(f"compiled graphs {adag_res=}")
+        base_action_log_probs, value, reward = adag_res
+        rewards = [reward]
 
-        # init log probs
-        base_action_log_probs_ref = self.initial_model.forward.remote(
-            sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens
-        )
+        # # init log probs
+        # base_action_log_probs_ref = self.initial_model.forward.remote(
+        #     sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens
+        # )
 
-        # values
-        value_ref = self.critic.forward.remote(
-            sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens
-        )
-        # avoid CUDA OOM when colocate models
-        if self.strategy.args.colocate_critic_reward:
-            ray.get([value_ref])
-            ray.get([self.critic.empty_cache.remote()])
+        # # values
+        # value_ref = self.critic.forward.remote(
+        #     sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens
+        # )
+        # # avoid CUDA OOM when colocate models
+        # if self.strategy.args.colocate_critic_reward:
+        #     ray.get([value_ref])
+        #     ray.get([self.critic.empty_cache.remote()])
 
-        if self.strategy.args.colocate_actor_ref:
-            ray.get([base_action_log_probs_ref])
-            ray.get([self.initial_model.empty_cache.remote()])
+        # if self.strategy.args.colocate_actor_ref:
+        #     ray.get([base_action_log_probs_ref])
+        #     ray.get([self.initial_model.empty_cache.remote()])
 
-        # rewards
-        r_refs = []
-        # support remote RM API with ray
-        if not self.remote_rm_url:
-            for rm in self.reward_model:
-                r_refs.append(rm.forward.remote(sequences_cpu, attention_mask_cpu, packed_seq_lens=packed_seq_lens))
-        else:
-            # remote RM
-            for rm in self.remote_rm_url:
-                if not self.packing_samples:
-                    queries = self.tokenizer.batch_decode(sequences_cpu, skip_special_tokens=False)
-                    r = remote_rm_fn_ray.remote(rm, queries=queries)
-                    r_refs.append(r)
-                else:
-                    sequences_list = []
-                    offset = 0
-                    tokens_list = sequences_cpu.tolist()[0]
-                    for length in packed_seq_lens:
-                        sequences_list.append(tokens_list[offset : offset + length])
-                        offset += length
-                    queries = self.tokenizer.batch_decode(sequences_list, skip_special_tokens=False)
-                    r = remote_rm_fn_ray.remote(rm, queries=queries)
-                    r_refs.append(r)
+        # # rewards
+        # r_refs = []
+        # # support remote RM API with ray
+        # if not self.remote_rm_url:
+        #     for rm in self.reward_model:
+        #         r_refs.append(rm.forward.remote(sequences_cpu, attention_mask_cpu, packed_seq_lens=packed_seq_lens))
+        # else:
+        #     # remote RM
+        #     for rm in self.remote_rm_url:
+        #         if not self.packing_samples:
+        #             queries = self.tokenizer.batch_decode(sequences_cpu, skip_special_tokens=False)
+        #             r = remote_rm_fn_ray.remote(rm, queries=queries)
+        #             r_refs.append(r)
+        #         else:
+        #             sequences_list = []
+        #             offset = 0
+        #             tokens_list = sequences_cpu.tolist()[0]
+        #             for length in packed_seq_lens:
+        #                 sequences_list.append(tokens_list[offset : offset + length])
+        #                 offset += length
+        #             queries = self.tokenizer.batch_decode(sequences_list, skip_special_tokens=False)
+        #             r = remote_rm_fn_ray.remote(rm, queries=queries)
+        #             r_refs.append(r)
 
         # log probs
         start = time.time()
         action_log_probs = self.actor(sequences, num_actions, attention_mask, packed_seq_lens=packed_seq_lens)
         actor_time = time.time() - start
 
-        # wait initial/critic/reward model done
-        start = time.time()
-        ref_values = ray.get([base_action_log_probs_ref, value_ref] + r_refs)
-        wait_time = time.time() - start
+        # # wait initial/critic/reward model done
+        # start = time.time()
+        # ref_values = ray.get([base_action_log_probs_ref, value_ref] + r_refs)
+        # wait_time = time.time() - start
 
-        base_action_log_probs, value, rewards = ref_values[0], ref_values[1], ref_values[2:]
-        base_action_log_probs, value = base_action_log_probs.to(device), value.to(device)
+        # base_action_log_probs, value, rewards = ref_values[0], ref_values[1], ref_values[2:]
+        # base_action_log_probs, value = base_action_log_probs.to(device), value.to(device)
         rewards = [r.to(device) for r in rewards]
         r = self.reward_fn(rewards) if len(rewards) > 0 else rewards[0]
 
