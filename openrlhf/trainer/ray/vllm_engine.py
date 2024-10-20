@@ -49,7 +49,7 @@ class LLMRayActor:
     def generate(self, *args, **kwargs):
         return self.llm.generate(*args, **kwargs)
 
-    @ray.method(num_returns=4)
+    # @ray.method(num_returns=4)
     def generate_and_prepare(self, sampling_params, prompt_token_ids, pad_token_id, eos_token_id):
         outputs = self.generate(sampling_params=sampling_params, prompt_token_ids=prompt_token_ids)
         # NOTE: concat all outputs to following format:

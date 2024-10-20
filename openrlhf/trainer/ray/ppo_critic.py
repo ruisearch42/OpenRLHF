@@ -162,6 +162,19 @@ class CriticModelRayActor(BasePPORole):
             )
         self.critic.train()  # reset model state
         return value.to("cpu")
+    
+    def forward_cg(
+        self,
+        seq_tuple
+    ):
+        sequences, attention_mask, action_mask, num_actions = seq_tuple
+        self.critic.eval()
+        with torch.no_grad():
+            value = self.critic(
+                sequences, num_actions, attention_mask, packed_seq_lens=None
+            )
+        self.critic.train()
+        return value
 
     def append(self, experience):
         """Append experience to replay buffer."""

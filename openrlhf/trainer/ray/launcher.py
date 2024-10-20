@@ -97,6 +97,18 @@ class ReferenceModelRayActor(BasePPORole):
                 packed_seq_lens=packed_seq_lens,
             )
         return log_probs.to("cpu")
+    
+    def forward_cg(self, seq_tuple):
+        sequences, attention_mask, action_mask, num_actions = seq_tuple
+        with torch.no_grad():
+            log_probs = self.model(
+                sequences,
+                num_actions,
+                attention_mask,
+                return_output=False,
+                packed_seq_lens=None
+            )
+        return log_probs
 
     def empty_cache(self) -> None:
         torch.cuda.empty_cache()
@@ -134,6 +146,14 @@ class RewardModelRayActor(BasePPORole):
         with torch.no_grad():
             reward = self.model(sequences.to(device), attention_mask.to(device), packed_seq_lens=packed_seq_lens)
         return reward.to("cpu")
+    
+    def forward_cg(
+        self, seq_tuple
+    ):
+        sequences, attention_mask, action_mask, num_actions = seq_tuple
+        with torch.no_grad():
+            reward = self.model(sequences, attention_mask, packed_seq_lens=None)
+        return reward
 
     def empty_cache(self) -> None:
         torch.cuda.empty_cache()

@@ -16,6 +16,8 @@ from openrlhf.utils.logging_utils import init_logger
 from openrlhf.utils.remote_rm_utils import remote_rm_fn, remote_rm_fn_ray
 
 from ray.dag import InputNode, MultiOutputNode
+from ray.experimental.channel.torch_tensor_type import TorchTensorType
+
 
 logger = init_logger(__name__)
 
@@ -533,16 +535,13 @@ class RCGExperienceMaker(NaiveExperienceMaker):
             pad_token_id = inp.pad_token_id
             eos_token_id = inp.eos_token_id
 
-            sequences, attention_mask, action_mask, num_actions = self.vllm_engines[0].generate_and_prepare.bind(
+            seq_tuple = self.vllm_engines[0].generate_and_prepare.bind(
                 sampling_params, prompt_token_ids, pad_token_id, eos_token_id)
-            # sequences_cpu = inp.sequences_cpu
-            # num_actions = inp.num_actions
-            # attention_mask_cpu = inp.attention_mask_cpu
-            base_action_log_probs = self.initial_model.forward.bind(
-                sequences, num_actions, attention_mask)
-            value = self.critic.forward.bind(
-                sequences, num_actions, attention_mask)
-            reward = self.reward_model[0].forward.bind(sequences, attention_mask)
+            seq_tuple.with_type_hint(TorchTensorType(transport="nccl"))
+
+            base_action_log_probs = self.initial_model.forward_cg.bind(seq_tuple)
+            value = self.critic.forward_cg.bind(seq_tuple)
+            reward = self.reward_model[0].forward_cg.bind(seq_tuple)
             dag = MultiOutputNode([base_action_log_probs, value, reward])
         compiled_dag = dag.experimental_compile()
         print("Init compiled graphs done")
