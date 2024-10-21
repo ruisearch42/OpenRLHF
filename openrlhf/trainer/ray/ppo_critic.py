@@ -63,6 +63,8 @@ class CriticPPOTrainer(PPOTrainer):
 @ray.remote(num_gpus=1)
 class CriticModelRayActor(BasePPORole):
     def init_model_from_pretrained(self, strategy: DeepspeedStrategy, pretrain, max_steps):
+        import os
+        os.environ["NCCL_DEBUG"] = "TRACE"
         args = strategy.args
 
         self._setup_distributed(strategy)

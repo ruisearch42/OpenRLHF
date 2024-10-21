@@ -155,7 +155,9 @@ class RewardModelRayActor(BasePPORole):
         device = torch.cuda.current_device()
         with torch.no_grad():
             reward = self.model(sequences.to(device), attention_mask.to(device), packed_seq_lens=None)
-        return reward
+            response_length = action_mask.float().sum(dim=-1)
+            total_length = attention_mask.float().sum(dim=-1)
+        return reward, sequences, attention_mask, action_mask, num_actions, response_length, total_length
 
     def empty_cache(self) -> None:
         torch.cuda.empty_cache()

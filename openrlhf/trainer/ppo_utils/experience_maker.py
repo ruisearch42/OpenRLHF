@@ -543,8 +543,8 @@ class RCGExperienceMaker(NaiveExperienceMaker):
 
             base_action_log_probs = self.initial_model.forward_cg.bind(seq_tuple)
             value = self.critic.forward_cg.bind(seq_tuple)
-            reward = self.reward_model[0].forward_cg.bind(seq_tuple)
-            dag = MultiOutputNode([base_action_log_probs, value, reward])
+            reward_tuple  = self.reward_model[0].forward_cg.bind(seq_tuple)
+            dag = MultiOutputNode([base_action_log_probs, value, reward_tuple])
         compiled_dag = dag.experimental_compile()
         print("Init compiled graphs done")
         return compiled_dag
@@ -570,24 +570,24 @@ class RCGExperienceMaker(NaiveExperienceMaker):
         device = torch.cuda.current_device()
 
         # generate sequence
-        start = time.time()
-        if not self.packing_samples:
-            sequences, attention_mask, action_mask = (
-                self._generate_local(prompts, **generate_kwargs)
-                if self.vllm_engines is None
-                else self._generate_vllm(prompts, **generate_kwargs)
-            )
-            num_actions = action_mask.size(1)
-            packed_seq_lens = None
-            response_length = action_mask.float().sum(dim=-1)
-            total_length = attention_mask.float().sum(dim=-1)
-        else:
-            assert self.vllm_engines is not None, "vllm_engines must be provided for packed samples"
-            sequences, attention_mask, packed_seq_lens, num_actions = self._generate_vllm(prompts, **generate_kwargs)
-            action_mask = None
-            response_length = torch.tensor(num_actions, device=device, dtype=torch.float)
-            total_length = torch.tensor(packed_seq_lens, device=device, dtype=torch.float)
-        generate_time = time.time() - start
+        # start = time.time()
+        # if not self.packing_samples:
+        #     sequences, attention_mask, action_mask = (
+        #         self._generate_local(prompts, **generate_kwargs)
+        #         if self.vllm_engines is None
+        #         else self._generate_vllm(prompts, **generate_kwargs)
+        #     )
+        #     num_actions = action_mask.size(1)
+        #     packed_seq_lens = None
+        #     response_length = action_mask.float().sum(dim=-1)
+        #     total_length = attention_mask.float().sum(dim=-1)
+        # else:
+        #     assert self.vllm_engines is not None, "vllm_engines must be provided for packed samples"
+        #     sequences, attention_mask, packed_seq_lens, num_actions = self._generate_vllm(prompts, **generate_kwargs)
+        #     action_mask = None
+        #     response_length = torch.tensor(num_actions, device=device, dtype=torch.float)
+        #     total_length = torch.tensor(packed_seq_lens, device=device, dtype=torch.float)
+        # generate_time = time.time() - start
 
         sampling_params, prompt_token_ids = self.preprocess_for_generate(prompts, **generate_kwargs)
 
@@ -606,7 +606,8 @@ class RCGExperienceMaker(NaiveExperienceMaker):
 
         adag_res = ray.get(adag_ref)
         print(f"compiled graphs {adag_res=}")
-        base_action_log_probs, value, reward = adag_res
+        base_action_log_probs, value, reward_tuple = adag_res
+        reward, sequences, attention_mask, action_mask, num_actions, response_length, total_length = reward_tuple
         rewards = [reward]
 
         # # init log probs
@@ -653,7 +654,10 @@ class RCGExperienceMaker(NaiveExperienceMaker):
 
         # log probs
         start = time.time()
-        action_log_probs = self.actor(sequences, num_actions, attention_mask, packed_seq_lens=packed_seq_lens)
+        sequences.to("cuda")
+        attention_mask.to("cuda")
+        print(f"outer {sequences.device=}")
+        action_log_probs = self.actor(sequences, num_actions, attention_mask, packed_seq_lens=None)
         actor_time = time.time() - start
 
         # # wait initial/critic/reward model done
@@ -688,7 +692,7 @@ class RCGExperienceMaker(NaiveExperienceMaker):
         else:
             # convert tensor into list of tensors so that it's easier to manipulate
             # within dataset.
-            sequences = unpacking_samples(sequences, packed_seq_lens)
+            sequences = unpacking_samples(sequences, None)
             attention_mask = None
             action_log_probs = unpacking_samples(action_log_probs, num_actions)
             value = unpacking_samples(value, num_actions)
@@ -716,9 +720,9 @@ class RCGExperienceMaker(NaiveExperienceMaker):
 
         if self.strategy.args.perf:
             batch_size = 1 if isinstance(prompts, str) else len(prompts)
-            info["generate_time"] = torch.full((batch_size,), generate_time, device=device)
+            info["generate_time"] = torch.full((batch_size,), 0, device=device)
             info["actor_time"] = torch.full((batch_size,), actor_time, device=device)
-            info["wait_time"] = torch.full((batch_size,), wait_time, device=device)
+            info["wait_time"] = torch.full((batch_size,), 0, device=device)
 
         experience = Experience(
             sequences,
