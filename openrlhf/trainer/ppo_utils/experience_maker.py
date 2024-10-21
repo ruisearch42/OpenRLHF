@@ -607,7 +607,10 @@ class RCGExperienceMaker(NaiveExperienceMaker):
         adag_res = ray.get(adag_ref)
         print(f"compiled graphs {adag_res=}")
         base_action_log_probs, value, reward_tuple = adag_res
+        base_action_log_probs = base_action_log_probs.to(device)
+        print(f"{base_action_log_probs.device=}")
         reward, sequences, attention_mask, action_mask, num_actions, response_length, total_length = reward_tuple
+        action_mask = action_mask.to(device)
         rewards = [reward]
 
         # # init log probs
@@ -654,8 +657,8 @@ class RCGExperienceMaker(NaiveExperienceMaker):
 
         # log probs
         start = time.time()
-        sequences.to("cuda")
-        attention_mask.to("cuda")
+        sequences = sequences.to(device)
+        attention_mask = attention_mask.to(device)
         print(f"outer {sequences.device=}")
         action_log_probs = self.actor(sequences, num_actions, attention_mask, packed_seq_lens=None)
         actor_time = time.time() - start
